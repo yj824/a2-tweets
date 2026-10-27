@@ -1,50 +1,151 @@
 class Tweet {
-	private text:string;
-	time:Date;
+    private text: string;
+    time: Date;
 
-	constructor(tweet_text:string, tweet_time:string) {
+    constructor(tweet_text: string, tweet_time: string) {
         this.text = tweet_text;
-		this.time = new Date(tweet_time);//, "ddd MMM D HH:mm:ss Z YYYY"
-	}
-
-	//returns either 'live_event', 'achievement', 'completed_event', or 'miscellaneous'
-    get source():string {
-        //TODO: identify whether the source is a live event, an achievement, a completed event, or miscellaneous.
-        return "unknown";
+        this.time = new Date(tweet_time);
     }
 
-    //returns a boolean, whether the text includes any content written by the person tweeting.
-    get written():boolean {
-        //TODO: identify whether the tweet is written
-        return false;
+    // Classify the tweet using common RunKeeper message prefixes.
+    get source(): string {
+        const text = this.text.toLowerCase();
+
+        if (text.startsWith("just completed ") || text.startsWith("just posted ")) {
+            return "completed_event";
+        }
+
+        if (text.startsWith("watch my ")) {
+            return "live_event";
+        }
+
+        if (text.startsWith("achieved a new ") || text.startsWith("i just set a goal ")) {
+            return "achievement";
+        }
+
+        return "miscellaneous";
     }
 
-    get writtenText():string {
-        if(!this.written) {
+    get written(): boolean {
+        return this.writtenText.length > 0;
+    }
+
+    // Extract the user's description and exclude automatic messages.
+    get writtenText(): string {
+        let text = this.text;
+
+        if (this.source === "completed_event") {
+            const separator = text.indexOf(" - ");
+
+            if (separator === -1) {
+                return "";
+            }
+
+            text = text.substring(separator + 3);
+        } else if (
+            this.source === "live_event" ||
+            this.source === "achievement" ||
+            text.toLowerCase().startsWith("just linked ")
+        ) {
             return "";
         }
-        //TODO: parse the written text from the tweet
-        return "";
+
+        // Remove URLs and the RunKeeper hashtag from the description.
+        text = text.split(/\s+/).filter(function(word) {
+            return !word.startsWith("http://") &&
+                !word.startsWith("https://") &&
+                word.toLowerCase() !== "#runkeeper";
+        }).join(" ").trim();
+
+        // Exclude default text added by the device or app.
+        if (
+            text === "TomTom MySports Watch" ||
+            text === "with @Runkeeper. Check it out!"
+        ) {
+            return "";
+        }
+
+        return text;
     }
 
-    get activityType():string {
-        if (this.source != 'completed_event') {
+    // Extract the activity name from distance-based or duration-based tweets.
+    get activityType(): string {
+        if (this.source !== "completed_event") {
             return "unknown";
         }
-        //TODO: parse the activity type from the text of the tweet
-        return "";
+
+        const words = this.text.split(/\s+/);
+        let start = 3;
+
+        if (words[4] === "km" || words[4] === "mi") {
+            start = 5;
+        }
+
+        let activity = words.slice(start).join(" ");
+        const endings = [" - ", " with ", " in ", " http://", " https://", " #"];
+
+        endings.forEach(function(ending) {
+            const position = activity.indexOf(ending);
+
+            if (position !== -1) {
+                activity = activity.substring(0, position);
+            }
+        });
+
+        return activity.trim().toLowerCase() || "unknown";
     }
 
-    get distance():number {
-        if(this.source != 'completed_event') {
+    // Return the distance in miles, or zero when no distance is available.
+    get distance(): number {
+        if (this.source !== "completed_event") {
             return 0;
         }
-        //TODO: prase the distance from the text of the tweet
+
+        const words = this.text.split(/\s+/);
+        const distance = parseFloat(words[3]);
+
+        if (!Number.isFinite(distance)) {
+            return 0;
+        }
+
+        if (words[4] === "km") {
+            return distance / 1.609;
+        }
+
+        if (words[4] === "mi") {
+            return distance;
+        }
+
         return 0;
     }
 
-    getHTMLTableRow(rowNumber:number):string {
-        //TODO: return a table row which summarizes the tweet with a clickable link to the RunKeeper activity
-        return "<tr></tr>";
+    // Build a table row using DOM elements to keep tweet text safely escaped.
+    getHTMLTableRow(rowNumber: number): string {
+        const row = document.createElement("tr");
+        const numberCell = document.createElement("th");
+        const activityCell = document.createElement("td");
+        const tweetCell = document.createElement("td");
+
+        numberCell.scope = "row";
+        numberCell.textContent = rowNumber.toString();
+        activityCell.textContent = this.activityType;
+
+        // Turn URLs into clickable links while preserving the original spacing.
+        this.text.split(/(\s+)/).forEach(function(part) {
+            if (part.startsWith("https://") || part.startsWith("http://")) {
+                const link = document.createElement("a");
+                link.href = part;
+                link.textContent = part;
+                tweetCell.appendChild(link);
+            } else {
+                tweetCell.appendChild(document.createTextNode(part));
+            }
+        });
+
+        row.appendChild(numberCell);
+        row.appendChild(activityCell);
+        row.appendChild(tweetCell);
+
+        return row.outerHTML;
     }
 }
